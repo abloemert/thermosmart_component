@@ -131,6 +131,8 @@ class ThermosmartDevice:
         try:
             data = await request.json()
         except ValueError:
+            content = await request.read()
+            _LOGGER.warning("Got invalid data: %s", content)
             return
 
         _LOGGER.debug("Got webhook data: %s", data)
