@@ -5,8 +5,10 @@ For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/thermosmart/
 """
 from datetime import timedelta
+from http import HTTPStatus
 import logging
 
+from aiohttp.web import Request, Response
 import voluptuous as vol
 
 from homeassistant.core import callback
@@ -20,6 +22,7 @@ from homeassistant.components.webhook import (
     async_register as webhook_register,
     async_unregister as webhook_unregister,
 )
+from homeassistant.components.http.view import HomeAssistantView
 
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import HomeAssistantType
@@ -31,7 +34,7 @@ from .oauth2 import register_oauth2_implementations
 
 _LOGGER = logging.getLogger(__name__)
 
-UPDATE_TIME = timedelta(seconds=30)
+UPDATE_TIME = timedelta(seconds=3600)
 
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
@@ -52,6 +55,8 @@ async def async_setup(hass, config):
     hass.data[DOMAIN] = {}
     hass.data[DOMAIN][CONFIG] = config[DOMAIN]
     
+    hass.http.register_view(ThermosmartWebhookView)
+
     register_oauth2_implementations(
         hass, config[DOMAIN][CONF_CLIENT_ID], config[DOMAIN][CONF_CLIENT_SECRET]
     )
@@ -175,3 +180,27 @@ class ThermosmartEntity(Entity):
         """Update entity when webhook arrived.""" 
         self.async_schedule_update_ha_state()
 
+class ThermosmartWebhookView(HomeAssistantView):
+    """Handle incoming webhook."""
+
+    url = '/api/thermosmart/event'
+    name = "api:thermosmart_webhook"
+    requires_auth = False
+    cors_allowed = True
+
+    async def _handle(self, request: Request):
+        """Handle webhook call."""
+        hass = request.app["hass"]
+        entry_id = None
+        for i in hass.data[DOMAIN].keys():
+            if i != CONFIG:
+                assert entry_id is None, "Multiple Thermosmart entries found"
+                entry_id = i
+        if entry_id:
+            await hass.data[DOMAIN][entry_id][DEVICE].handle_webhook(
+                hass, '', request)
+        return Response(status=HTTPStatus.OK)
+
+    head = _handle
+    post = _handle
+    put = _handle
